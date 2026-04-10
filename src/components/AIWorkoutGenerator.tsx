@@ -85,7 +85,7 @@ export default function AIWorkoutGenerator({ open, onClose, clients, library, co
         clientId: config.clientId,
         coachId,
         name: generated.name,
-        date: Timestamp.fromDate(new Date(config.date)),
+        date: Timestamp.fromDate(new Date(config.date + 'T12:00:00')),
         status: 'planned',
       });
 

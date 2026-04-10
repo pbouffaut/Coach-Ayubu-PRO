@@ -169,7 +169,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
       clientId: newWorkout.clientId,
       coachId: user.uid,
       name: newWorkout.name,
-      date: Timestamp.fromDate(new Date(newWorkout.date)),
+      date: Timestamp.fromDate(new Date(newWorkout.date + 'T12:00:00')),
       status: 'planned'
     };
 
@@ -518,7 +518,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                               onChange={async (e) => {
                                 if (e.target.value) {
                                   await updateDoc(doc(db, 'workouts', workout.id), {
-                                    date: Timestamp.fromDate(new Date(e.target.value))
+                                    date: Timestamp.fromDate(new Date(e.target.value + 'T12:00:00'))
                                   });
                                   toast.success('Date mise à jour');
                                 }
