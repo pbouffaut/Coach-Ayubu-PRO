@@ -1,0 +1,151 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - uid: string (required)
+//   - email: string (required)
+//   - role: string (required, 'coach' | 'client')
+//   - firstName: string (required)
+//   - lastName: string (required)
+//   - age: number
+//   - gender: string
+//   - height: number
+//   - weight: number
+//   - medicalConditions: string
+//   - primaryObjective: string
+//   - secondaryObjectives: string
+//   - clientCode: string (unique)
+//   - password: string
+//
+// Collection: workouts
+// Document ID: {workoutId}
+// Fields:
+//   - clientId: string (required)
+//   - coachId: string (required)
+//   - name: string (required)
+//   - date: timestamp (required)
+//   - status: string (required, 'planned' | 'in-progress' | 'completed' | 'auto-completed')
+//   - startTime: timestamp
+//   - endTime: timestamp
+//
+// Subcollection: workouts/{workoutId}/exercises
+// Document ID: {exerciseId}
+// Fields:
+//   - name: string (required)
+//   - explanation: string
+//   - muscles: string
+//   - videoUrl: string
+//   - plannedSets: number (required)
+//   - plannedReps: number
+//   - plannedDuration: string
+//   - restTime: string
+//   - actualSets: number
+//   - actualReps: number
+//   - difficulty: string ('too-easy' | 'just-right' | 'too-hard')
+//   - completed: bool (required)
+//   - order: number (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isCoach() {
+      return isAuthenticated() && 
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'coach') || 
+         (request.auth.token.email == "pbouffaut@industriousoffice.com" && request.auth.token.email_verified == true));
+    }
+
+    function isClientOf(clientId) {
+      return isAuthenticated() && request.auth.uid == clientId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'firstName', 'lastName']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['coach', 'client'] &&
+             data.firstName is string && data.firstName.size() < 100 &&
+             data.lastName is string && data.lastName.size() < 100;
+    }
+
+    function isValidWorkout(data) {
+      return data.keys().hasAll(['clientId', 'coachId', 'name', 'date', 'status']) &&
+             data.clientId is string &&
+             data.coachId is string &&
+             data.name is string && data.name.size() < 200 &&
+             data.status in ['planned', 'in-progress', 'completed', 'auto-completed'];
+    }
+
+    function isValidExercise(data) {
+      return data.keys().hasAll(['name', 'plannedSets', 'completed', 'order']) &&
+             data.name is string && data.name.size() < 200 &&
+             data.plannedSets is number &&
+             data.completed is bool &&
+             data.order is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isCoach());
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isCoach());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isOwner(userId) && request.resource.data.role == resource.data.role || isCoach());
+      allow delete: if isCoach();
+    }
+
+    match /library/{exerciseId} {
+      allow read: if isAuthenticated();
+      allow write: if isCoach();
+    }
+
+    match /weight_tracking/{entryId} {
+      allow read: if isAuthenticated() && (isOwner(request.auth.uid) || isCoach());
+      allow create: if isAuthenticated() && (isOwner(request.resource.data.userId) || isCoach());
+      allow update, delete: if isAuthenticated() && (isOwner(resource.data.userId) || isCoach());
+    }
+
+    match /workouts/{workoutId} {
+      allow read: if isAuthenticated() && (isClientOf(resource.data.clientId) || isCoach());
+      allow create: if isCoach() && isValidWorkout(request.resource.data);
+      allow update: if isAuthenticated() && 
+                    (isCoach() || (isClientOf(resource.data.clientId) && isValidWorkout(request.resource.data)));
+      allow delete: if isCoach();
+
+      match /exercises/{exerciseId} {
+        allow read: if isAuthenticated() && (isClientOf(get(/databases/$(database)/documents/workouts/$(workoutId)).data.clientId) || isCoach());
+        allow create: if isCoach() && isValidExercise(request.resource.data);
+        allow update: if isAuthenticated() && 
+                      (isCoach() || (isClientOf(get(/databases/$(database)/documents/workouts/$(workoutId)).data.clientId) && isValidExercise(request.resource.data)));
+        allow delete: if isCoach();
+      }
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

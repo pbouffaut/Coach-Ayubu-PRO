@@ -1,0 +1,114 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "User Profile",
+      "description": "Profile information for coaches and clients",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["coach", "client"] },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "birthDate": { "type": "string", "format": "date" },
+        "height": { "type": "number", "description": "Height in cm" },
+        "waistCircumference": { "type": "number", "description": "Waist circumference in cm" },
+        "initialWeight": { "type": "number", "description": "Initial weight in kg" },
+        "currentWeight": { "type": "number", "description": "Current weight in kg" },
+        "targetWeight": { "type": "number", "description": "Target weight in kg" },
+        "medicalConditions": { "type": "string" },
+        "primaryObjective": { "type": "string" },
+        "secondaryObjectives": { "type": "string" },
+        "clientCode": { "type": "string", "description": "Unique identifier for client login" },
+        "password": { "type": "string", "description": "Plain text password for demo purposes (not recommended for production)" }
+      },
+      "required": ["uid", "email", "role", "firstName", "lastName"]
+    },
+    "Workout": {
+      "title": "Workout Session",
+      "description": "A planned or completed workout session",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string", "description": "UID of the client" },
+        "coachId": { "type": "string", "description": "UID of the coach who created it" },
+        "name": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["planned", "in-progress", "completed", "auto-completed"] },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clientId", "coachId", "name", "date", "status"]
+    },
+    "WorkoutExercise": {
+      "title": "Workout Exercise",
+      "description": "An exercise within a workout session",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "explanation": { "type": "string" },
+        "muscles": { "type": "string" },
+        "videoUrl": { "type": "string", "format": "uri" },
+        "plannedSets": { "type": "number" },
+        "plannedReps": { "type": "number" },
+        "plannedWeight": { "type": "number" },
+        "plannedDuration": { "type": "string", "description": "e.g., 1 min" },
+        "restTime": { "type": "string", "description": "e.g., 60s" },
+        "actualSets": { "type": "number" },
+        "actualReps": { "type": "number" },
+        "actualWeight": { "type": "number" },
+        "actualDuration": { "type": "string" },
+        "difficulty": { "type": "string", "enum": ["too-easy", "just-right", "too-hard"] },
+        "completed": { "type": "boolean" },
+        "order": { "type": "number" },
+        "trackingTypes": { "type": "array", "items": { "type": "string", "enum": ["reps", "weight", "duration"] } }
+      },
+      "required": ["name", "plannedSets", "completed", "order", "trackingTypes"]
+    },
+    "LibraryExercise": {
+      "title": "Library Exercise",
+      "description": "A template exercise in the coach's library",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "explanation": { "type": "string" },
+        "muscles": { "type": "string" },
+        "videoUrl": { "type": "string", "format": "uri" },
+        "trackingTypes": { "type": "array", "items": { "type": "string", "enum": ["reps", "weight", "duration"] } }
+      },
+      "required": ["name", "trackingTypes"]
+    },
+    "WeightEntry": {
+      "title": "Weight Entry",
+      "description": "A periodic weight measurement for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "weight": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "weight", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "Profile",
+      "description": "User profile data"
+    },
+    "/library/{exerciseId}": {
+      "schema": "LibraryExercise",
+      "description": "Coach's exercise library"
+    },
+    "/weight_tracking/{entryId}": {
+      "schema": "WeightEntry",
+      "description": "User weight history"
+    },
+    "/workouts/{workoutId}": {
+      "schema": "Workout",
+      "description": "Workout metadata"
+    },
+    "/workouts/{workoutId}/exercises/{exerciseId}": {
+      "schema": "WorkoutExercise",
+      "description": "Exercises within a workout"
+    }
+  }
+}

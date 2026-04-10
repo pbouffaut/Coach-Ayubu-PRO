@@ -1,0 +1,5 @@
+{
+  "name": "CoachPro - Suivi d'Entraînement",
+  "description": "Application de suivi d'entraînement pour coachs sportifs et leurs clients. Gestion de programmes, sessions en temps réel et dashboard de progression.",
+  "requestFramePermissions": []
+}
