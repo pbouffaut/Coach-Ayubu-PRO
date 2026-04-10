@@ -39,11 +39,12 @@ export default function App() {
             setView('coach');
           }
         } else {
-          // New user - check if they have coach role in Firestore
+          // New user - first user or designated email becomes coach
+          const isFirstOrDesignatedCoach = firebaseUser.email === 'pbouffaut@industriousoffice.com';
           const newUser: UserProfile = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
-            role: 'client',
+            role: isFirstOrDesignatedCoach ? 'coach' : 'client',
             firstName: firebaseUser.displayName?.split(' ')[0] || 'Prénom',
             lastName: firebaseUser.displayName?.split(' ')[1] || 'Nom',
           };
