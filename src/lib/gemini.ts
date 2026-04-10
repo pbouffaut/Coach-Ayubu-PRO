@@ -40,7 +40,8 @@ export async function syncAISettingsFromFirestore(coachUid: string): Promise<AIS
 
 async function getAI(): Promise<{ ai: GoogleGenAI; model: AIModel }> {
   const settings = loadAISettingsFromStorage();
-  const apiKey = settings.apiKey || ENV_API_KEY;
+  // Settings key takes priority over build-time env var
+  const apiKey = settings.apiKey ? settings.apiKey : ENV_API_KEY;
 
   if (!apiKey) {
     throw new Error('Clé API Gemini manquante. Configurez-la dans Paramètres > Configuration IA.');
