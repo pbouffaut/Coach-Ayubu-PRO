@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import AIWorkoutGenerator from './AIWorkoutGenerator';
 import CoachSettings from './CoachSettings';
+import { sendCredentialsEmail } from '../lib/mail';
 
 interface CoachAdminProps {
   user: UserProfile;
@@ -133,9 +134,11 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
         passwordHash: hashedPw,
         password: undefined // don't store plaintext
       });
-      toast.success(`Client ajouté ! Code: ${newClient.clientCode} / Mot de passe: ${newClient.password}`);
+      toast.success(`Client ajouté !`);
+      if (newClient.email) {
+        sendCredentialsEmail(newClient.email, newClient.firstName, newClient.clientCode, newClient.password, 'client');
+      }
       setIsAddingClient(false);
-      // Reset form with new codes
       setNewClient({
         ...newClient,
         firstName: '', lastName: '', email: '',

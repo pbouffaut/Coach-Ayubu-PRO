@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Settings, Users, Brain, Shield, Eye, EyeOff, CheckCircle2, XCircle, Loader2, UserPlus, UserMinus, Sparkles, Zap, Crown, AlertCircle, Copy, TestTube } from 'lucide-react';
 import { toast } from 'sonner';
+import { sendCredentialsEmail } from '../lib/mail';
 
 interface CoachSettingsProps {
   user: UserProfile;
@@ -170,7 +171,10 @@ export default function CoachSettings({ user }: CoachSettingsProps) {
         clientCode: newCoach.clientCode,
         passwordHash: hashedPw,
       });
-      toast.success(`Coach créé ! Code: ${newCoach.clientCode} / Mot de passe: ${newCoach.password}`);
+      toast.success(`Coach créé !`);
+      if (newCoach.email) {
+        sendCredentialsEmail(newCoach.email, newCoach.firstName, newCoach.clientCode, newCoach.password, 'coach');
+      }
       setIsAddingCoach(false);
       setNewCoach({
         firstName: '', lastName: '', email: '',
