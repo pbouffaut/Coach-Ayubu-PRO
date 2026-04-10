@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
-const GEMINI_API_KEY = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || '';
+// Vite replaces process.env.GEMINI_API_KEY at build time via define config
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 let ai: GoogleGenAI | null = null;
 
