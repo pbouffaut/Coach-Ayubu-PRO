@@ -40,8 +40,13 @@ export async function syncAISettingsFromFirestore(coachUid: string): Promise<AIS
 
 async function getAI(): Promise<{ ai: GoogleGenAI; model: AIModel }> {
   const settings = loadAISettingsFromStorage();
-  // Settings key takes priority over build-time env var
-  const apiKey = settings.apiKey ? settings.apiKey : ENV_API_KEY;
+  // Settings key takes strict priority over build-time env var
+  const apiKey = settings.apiKey && settings.apiKey.length > 5 ? settings.apiKey : ENV_API_KEY;
+  const model = settings.model || 'gemini-2.0-flash-lite';
+
+  console.log('[Gemini] Using key:', apiKey ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` : 'NONE');
+  console.log('[Gemini] Using model:', model);
+  console.log('[Gemini] ENV_API_KEY present:', !!ENV_API_KEY);
 
   if (!apiKey) {
     throw new Error('Clé API Gemini manquante. Configurez-la dans Paramètres > Configuration IA.');
@@ -49,7 +54,7 @@ async function getAI(): Promise<{ ai: GoogleGenAI; model: AIModel }> {
 
   return {
     ai: new GoogleGenAI({ apiKey }),
-    model: settings.model || 'gemini-2.0-flash-lite',
+    model,
   };
 }
 
