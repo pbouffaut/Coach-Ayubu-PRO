@@ -71,6 +71,14 @@ export interface LibraryExercise {
   trackingTypes: ('reps' | 'weight' | 'duration')[];
 }
 
+export type AIModel = 'gemini-2.0-flash-lite' | 'gemini-2.0-flash' | 'gemini-2.5-flash' | 'gemini-2.5-pro';
+
+export interface AISettings {
+  apiKey: string;
+  model: AIModel;
+  lastTested?: string; // ISO date
+}
+
 export interface PerformanceStats {
   totalWorkouts: number;
   completedWorkouts: number;

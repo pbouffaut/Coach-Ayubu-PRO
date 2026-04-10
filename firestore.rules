@@ -143,6 +143,11 @@ service cloud.firestore {
       }
     }
 
+    match /settings/{docId} {
+      allow read: if isCoach();
+      allow write: if isCoach();
+    }
+
     match /test/connection {
       allow read: if true;
     }

@@ -1,18 +1,54 @@
 import { GoogleGenAI } from '@google/genai';
+import { db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { AISettings, AIModel } from '../types';
 
-// Vite replaces process.env.GEMINI_API_KEY at build time via define config
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+// Build-time fallback (Vite replaces this at build)
+const ENV_API_KEY = process.env.GEMINI_API_KEY || '';
 
-let ai: GoogleGenAI | null = null;
+// Cache for Firestore settings
+let cachedSettings: AISettings | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 min
 
-function getAI(): GoogleGenAI {
-  if (!ai) {
-    if (!GEMINI_API_KEY) {
-      throw new Error('Clé API Gemini manquante. Ajoutez VITE_GEMINI_API_KEY dans votre .env');
-    }
-    ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+async function loadAISettings(): Promise<AISettings> {
+  const now = Date.now();
+  if (cachedSettings && (now - cacheTimestamp) < CACHE_TTL) {
+    return cachedSettings;
   }
-  return ai;
+
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'ai'));
+    if (snap.exists()) {
+      cachedSettings = snap.data() as AISettings;
+      cacheTimestamp = now;
+      return cachedSettings;
+    }
+  } catch {
+    // Firestore unavailable — fall through to env var
+  }
+
+  return { apiKey: ENV_API_KEY, model: 'gemini-2.0-flash-lite' };
+}
+
+// Force refresh cache (call after saving settings)
+export function invalidateAISettingsCache() {
+  cachedSettings = null;
+  cacheTimestamp = 0;
+}
+
+async function getAI(): Promise<{ ai: GoogleGenAI; model: AIModel }> {
+  const settings = await loadAISettings();
+  const apiKey = settings.apiKey || ENV_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('Clé API Gemini manquante. Configurez-la dans Paramètres > Configuration IA.');
+  }
+
+  return {
+    ai: new GoogleGenAI({ apiKey }),
+    model: settings.model || 'gemini-2.0-flash-lite',
+  };
 }
 
 export interface GeneratedWorkout {
@@ -48,7 +84,7 @@ export async function generateWorkoutPlan(
     equipment: string;
   }
 ): Promise<GeneratedWorkout> {
-  const genAI = getAI();
+  const { ai, model } = await getAI();
 
   const exerciseList = availableExercises.map(e => `- ${e.name} (${e.muscles}) [${e.trackingTypes.join(', ')}]`).join('\n');
 
@@ -97,13 +133,12 @@ Réponds UNIQUEMENT avec un JSON valide (sans markdown) dans ce format:
   "tips": "Conseils généraux pour cette séance"
 }`;
 
-  const response = await genAI.models.generateContent({
-    model: 'gemini-2.0-flash',
+  const response = await ai.models.generateContent({
+    model,
     contents: prompt,
   });
 
   const text = response.text || '';
-  // Clean potential markdown fences
   const jsonStr = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
   try {
@@ -118,7 +153,7 @@ export async function getCoachingTip(
   difficulty: string,
   performance: { planned: string; actual: string }
 ): Promise<string> {
-  const genAI = getAI();
+  const { ai, model } = await getAI();
 
   const prompt = `Tu es un coach sportif. Donne un conseil court (2-3 phrases max) en français pour un athlète qui vient de faire l'exercice "${exerciseName}".
 Difficulté ressentie: ${difficulty}
@@ -127,8 +162,8 @@ Performance réelle: ${performance.actual}
 
 Donne un conseil concret et motivant. Pas de markdown, juste du texte.`;
 
-  const response = await genAI.models.generateContent({
-    model: 'gemini-2.0-flash',
+  const response = await ai.models.generateContent({
+    model,
     contents: prompt,
   });
 
@@ -140,7 +175,7 @@ export async function analyzeProgress(
   weightHistory: { date: string; weight: number }[],
   objectives: string
 ): Promise<string> {
-  const genAI = getAI();
+  const { ai, model } = await getAI();
 
   const prompt = `Tu es un coach sportif expert. Analyse la progression de cet athlète et donne un résumé personnalisé en français (5-8 phrases).
 
@@ -160,8 +195,8 @@ Analyse:
 
 Sois encourageant mais honnête. Pas de markdown, juste du texte structuré.`;
 
-  const response = await genAI.models.generateContent({
-    model: 'gemini-2.0-flash',
+  const response = await ai.models.generateContent({
+    model,
     contents: prompt,
   });
 

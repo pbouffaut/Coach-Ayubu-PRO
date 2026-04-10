@@ -14,11 +14,12 @@ import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Checkbox } from './ui/checkbox';
-import { UserPlus, Dumbbell, Plus, Trash2, Users, Calendar, ChevronRight, Search, Activity, Target, BookOpen, Edit, Save, X, Video, Weight, Clock, ListChecks, Sparkles, BarChart3, Copy, Eye, EyeOff, Filter, TrendingUp } from 'lucide-react';
+import { UserPlus, Dumbbell, Plus, Trash2, Users, Calendar, ChevronRight, Search, Activity, Target, BookOpen, Edit, Save, X, Video, Weight, Clock, ListChecks, Sparkles, BarChart3, Copy, Eye, EyeOff, Filter, TrendingUp, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import AIWorkoutGenerator from './AIWorkoutGenerator';
+import CoachSettings from './CoachSettings';
 
 interface CoachAdminProps {
   user: UserProfile;
@@ -393,6 +394,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
           <TabsTrigger value="clients" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><Users size={16} className="mr-2" /> Clients ({clients.length})</TabsTrigger>
           <TabsTrigger value="workouts" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><Calendar size={16} className="mr-2" /> Entraînements ({workouts.length})</TabsTrigger>
           <TabsTrigger value="library" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><BookOpen size={16} className="mr-2" /> Bibliothèque ({library.length})</TabsTrigger>
+          <TabsTrigger value="settings" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><Settings size={16} className="mr-2" /> Paramètres</TabsTrigger>
         </TabsList>
 
         <TabsContent value="clients">
@@ -651,6 +653,10 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
               ))}
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="settings">
+          <CoachSettings user={user} />
         </TabsContent>
       </Tabs>
 
