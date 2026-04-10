@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDocs } from 'firebase/firestore';
+import { db, hashPassword, generateSecureCode, generateSecurePassword } from '../lib/firebase';
+import { collection, query, where, onSnapshot, doc, updateDoc, getDocs, setDoc } from 'firebase/firestore';
 import { UserProfile, AISettings, AIModel } from '../types';
 import { loadAISettingsFromStorage, saveAISettingsToStorage, syncAISettingsFromFirestore } from '../lib/gemini';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -33,7 +33,14 @@ export default function CoachSettings({ user }: CoachSettingsProps) {
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [saving, setSaving] = useState(false);
   const [isAddingCoach, setIsAddingCoach] = useState(false);
+  const [addCoachMode, setAddCoachMode] = useState<'promote' | 'create'>('promote');
   const [newCoachEmail, setNewCoachEmail] = useState('');
+  const [newCoach, setNewCoach] = useState({
+    firstName: '', lastName: '', email: '',
+    clientCode: generateSecureCode(),
+    password: generateSecurePassword()
+  });
+  const [showNewCoachPassword, setShowNewCoachPassword] = useState(false);
   const [promoteLoading, setPromoteLoading] = useState(false);
 
   // Load coaches
@@ -144,6 +151,39 @@ export default function CoachSettings({ user }: CoachSettingsProps) {
     }
   };
 
+  // Create new coach with credentials
+  const handleCreateCoach = async () => {
+    if (!newCoach.firstName || !newCoach.lastName) {
+      toast.error("Prénom et nom obligatoires");
+      return;
+    }
+    setPromoteLoading(true);
+    try {
+      const tempUid = 'coach_' + Math.random().toString(36).substring(7);
+      const hashedPw = await hashPassword(newCoach.password);
+      await setDoc(doc(db, 'users', tempUid), {
+        uid: tempUid,
+        email: newCoach.email,
+        role: 'coach',
+        firstName: newCoach.firstName,
+        lastName: newCoach.lastName,
+        clientCode: newCoach.clientCode,
+        passwordHash: hashedPw,
+      });
+      toast.success(`Coach créé ! Code: ${newCoach.clientCode} / Mot de passe: ${newCoach.password}`);
+      setIsAddingCoach(false);
+      setNewCoach({
+        firstName: '', lastName: '', email: '',
+        clientCode: generateSecureCode(),
+        password: generateSecurePassword()
+      });
+    } catch (error) {
+      toast.error("Erreur lors de la création");
+    } finally {
+      setPromoteLoading(false);
+    }
+  };
+
   // Demote coach to client
   const handleDemoteCoach = async (coach: UserProfile) => {
     if (coach.uid === user.uid) {
@@ -175,39 +215,84 @@ export default function CoachSettings({ user }: CoachSettingsProps) {
               <p className="text-sm text-slate-500">Gérez qui a accès à l'espace coach.</p>
             </div>
           </div>
-          <Dialog open={isAddingCoach} onOpenChange={setIsAddingCoach}>
+          <Dialog open={isAddingCoach} onOpenChange={(open) => { setIsAddingCoach(open); if (!open) setAddCoachMode('promote'); }}>
             <Button onClick={() => setIsAddingCoach(true)} className="bg-blue-900 text-white rounded-xl">
               <UserPlus className="mr-2" size={18} /> Ajouter un Coach
             </Button>
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Ajouter un Coach</DialogTitle>
-                <DialogDescription>
-                  L'utilisateur doit d'abord s'être connecté à l'application au moins une fois.
-                </DialogDescription>
+                <DialogDescription>Promouvoir un utilisateur existant ou créer un nouveau compte coach.</DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label>Email de l'utilisateur à promouvoir</Label>
-                  <Input
-                    type="email"
-                    value={newCoachEmail}
-                    onChange={e => setNewCoachEmail(e.target.value)}
-                    placeholder="coach@example.com"
-                  />
-                </div>
-                <div className="bg-amber-50 p-3 rounded-xl text-sm text-amber-800 flex gap-2">
-                  <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                  <span>Le coach aura accès à tous les clients et pourra créer des entraînements.</span>
-                </div>
+
+              {/* Mode switcher */}
+              <div className="flex border rounded-xl overflow-hidden">
+                <button
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${addCoachMode === 'promote' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500'}`}
+                  onClick={() => setAddCoachMode('promote')}
+                >Promouvoir un utilisateur</button>
+                <button
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${addCoachMode === 'create' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500'}`}
+                  onClick={() => setAddCoachMode('create')}
+                >Créer un nouveau coach</button>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddingCoach(false)}>Annuler</Button>
-                <Button onClick={handlePromoteToCoach} disabled={promoteLoading} className="bg-blue-900 text-white">
-                  {promoteLoading ? <Loader2 className="mr-2 animate-spin" size={16} /> : <Crown className="mr-2" size={16} />}
-                  Promouvoir en Coach
-                </Button>
-              </DialogFooter>
+
+              {addCoachMode === 'promote' ? (
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
+                    <Label>Email de l'utilisateur à promouvoir</Label>
+                    <Input type="email" value={newCoachEmail} onChange={e => setNewCoachEmail(e.target.value)} placeholder="coach@example.com" />
+                  </div>
+                  <div className="bg-amber-50 p-3 rounded-xl text-sm text-amber-800 flex gap-2">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                    <span>L'utilisateur doit s'être connecté au moins une fois.</span>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddingCoach(false)}>Annuler</Button>
+                    <Button onClick={handlePromoteToCoach} disabled={promoteLoading} className="bg-blue-900 text-white">
+                      {promoteLoading ? <Loader2 className="mr-2 animate-spin" size={16} /> : <Crown className="mr-2" size={16} />}
+                      Promouvoir
+                    </Button>
+                  </DialogFooter>
+                </div>
+              ) : (
+                <div className="space-y-4 py-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2"><Label>Prénom</Label><Input value={newCoach.firstName} onChange={e => setNewCoach({...newCoach, firstName: e.target.value})} /></div>
+                    <div className="space-y-2"><Label>Nom</Label><Input value={newCoach.lastName} onChange={e => setNewCoach({...newCoach, lastName: e.target.value})} /></div>
+                  </div>
+                  <div className="space-y-2"><Label>Email</Label><Input type="email" value={newCoach.email} onChange={e => setNewCoach({...newCoach, email: e.target.value})} /></div>
+                  <Separator />
+                  <div className="bg-blue-50 p-4 rounded-xl space-y-3">
+                    <p className="text-sm font-bold text-blue-900">Identifiants de connexion</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Code</Label>
+                        <div className="flex gap-1">
+                          <Input value={newCoach.clientCode} readOnly className="font-mono font-bold h-8 text-sm" />
+                          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => { navigator.clipboard.writeText(newCoach.clientCode); toast.success('Copié'); }}><Copy size={12} /></Button>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Mot de passe</Label>
+                        <div className="flex gap-1">
+                          <Input type={showNewCoachPassword ? 'text' : 'password'} value={newCoach.password} readOnly className="font-mono h-8 text-sm" />
+                          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setShowNewCoachPassword(!showNewCoachPassword)}>
+                            {showNewCoachPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddingCoach(false)}>Annuler</Button>
+                    <Button onClick={handleCreateCoach} disabled={promoteLoading} className="bg-emerald-600 text-white">
+                      {promoteLoading ? <Loader2 className="mr-2 animate-spin" size={16} /> : <UserPlus className="mr-2" size={16} />}
+                      Créer le coach
+                    </Button>
+                  </DialogFooter>
+                </div>
+              )}
             </DialogContent>
           </Dialog>
         </div>

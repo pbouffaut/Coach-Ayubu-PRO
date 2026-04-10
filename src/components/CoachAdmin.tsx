@@ -14,7 +14,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Checkbox } from './ui/checkbox';
-import { UserPlus, Dumbbell, Plus, Trash2, Users, Calendar, ChevronRight, Search, Activity, Target, BookOpen, Edit, Save, X, Video, Weight, Clock, ListChecks, Sparkles, BarChart3, Copy, Eye, EyeOff, Filter, TrendingUp, Settings } from 'lucide-react';
+import { UserPlus, Dumbbell, Plus, Trash2, Users, Calendar, ChevronRight, ChevronUp, ChevronDown, Search, Activity, Target, BookOpen, Edit, Save, X, Video, Weight, Clock, ListChecks, Sparkles, BarChart3, Copy, Eye, EyeOff, Filter, TrendingUp, Settings, CalendarDays } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -280,6 +280,17 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
     await batch.commit();
   };
 
+  const moveExercise = async (idx: number, direction: 'up' | 'down') => {
+    if (!editingWorkout) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= workoutExercises.length) return;
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'workouts', editingWorkout.id, 'exercises', workoutExercises[idx].id), { order: swapIdx });
+    batch.update(doc(db, 'workouts', editingWorkout.id, 'exercises', workoutExercises[swapIdx].id), { order: idx });
+    await batch.commit();
+  };
+
   // Client stats helper
   const getClientStats = (clientId: string) => {
     const clientWorkouts = workouts.filter(w => w.clientId === clientId);
@@ -499,7 +510,25 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                       <tr key={workout.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50">
                         <td className="p-4"><div className="font-bold text-blue-900">{client ? `${client.firstName} ${client.lastName}` : 'Inconnu'}</div></td>
                         <td className="p-4 text-slate-600">{workout.name}</td>
-                        <td className="p-4 text-slate-500 text-sm">{workout.date ? format(workout.date.toDate(), 'dd MMM yyyy', { locale: fr }) : '-'}</td>
+                        <td className="p-4 text-slate-500 text-sm">
+                          {workout.status === 'planned' ? (
+                            <Input
+                              type="date"
+                              value={workout.date ? format(workout.date.toDate(), 'yyyy-MM-dd') : ''}
+                              onChange={async (e) => {
+                                if (e.target.value) {
+                                  await updateDoc(doc(db, 'workouts', workout.id), {
+                                    date: Timestamp.fromDate(new Date(e.target.value))
+                                  });
+                                  toast.success('Date mise à jour');
+                                }
+                              }}
+                              className="h-8 w-36 text-sm"
+                            />
+                          ) : (
+                            workout.date ? format(workout.date.toDate(), 'dd MMM yyyy', { locale: fr }) : '-'
+                          )}
+                        </td>
                         <td className="p-4">
                           <Badge className={`border-none text-[10px] uppercase ${
                             workout.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
@@ -689,13 +718,8 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
       <Dialog open={!!editingWorkout} onOpenChange={(open) => !open && setEditingWorkout(null)}>
         <DialogContent className="max-w-2xl w-[95vw] h-[90vh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="p-6 border-b bg-slate-50">
-            <div className="flex justify-between items-center">
-              <div>
-                <DialogTitle className="text-2xl text-blue-900">{editingWorkout?.name}</DialogTitle>
-                <DialogDescription>Configuration de la séance pour {clients.find(c => c.uid === editingWorkout?.clientId)?.firstName}</DialogDescription>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => setEditingWorkout(null)}><X size={20} /></Button>
-            </div>
+            <DialogTitle className="text-2xl text-blue-900">{editingWorkout?.name}</DialogTitle>
+            <DialogDescription>Configuration de la séance pour {clients.find(c => c.uid === editingWorkout?.clientId)?.firstName}</DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 overflow-hidden flex flex-col">
@@ -722,7 +746,13 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                   workoutExercises.map((ex, idx) => (
                     <div key={ex.id} className="bg-white border rounded-xl p-3 md:p-4 shadow-sm space-y-3 relative group">
                       <div className="flex justify-between items-start">
-                        <div className="font-bold text-blue-900 text-sm md:text-base">{idx + 1}. {ex.name}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col">
+                            <Button variant="ghost" size="icon" className="h-5 w-5 text-slate-300 hover:text-blue-600" disabled={idx === 0} onClick={() => moveExercise(idx, 'up')}><ChevronUp size={14} /></Button>
+                            <Button variant="ghost" size="icon" className="h-5 w-5 text-slate-300 hover:text-blue-600" disabled={idx === workoutExercises.length - 1} onClick={() => moveExercise(idx, 'down')}><ChevronDown size={14} /></Button>
+                          </div>
+                          <div className="font-bold text-blue-900 text-sm md:text-base">{idx + 1}. {ex.name}</div>
+                        </div>
                         <Button variant="ghost" size="icon" className="text-rose-400 hover:text-rose-600 h-6 w-6" onClick={() => removeExerciseFromWorkout(ex.id)}><Trash2 size={14} /></Button>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
