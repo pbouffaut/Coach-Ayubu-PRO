@@ -1,10 +1,9 @@
 {
-  "projectId": "gen-lang-client-0551490873",
-  "appId": "1:290826722594:web:f695c731ea0a71f9b2197b",
-  "apiKey": "AIzaSyDcK1NbR6yus_VweX8uqNnjhLEYUxsF5x4",
-  "authDomain": "gen-lang-client-0551490873.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-c28312c7-adf7-4117-adba-f7a5a4da72ba",
-  "storageBucket": "gen-lang-client-0551490873.firebasestorage.app",
-  "messagingSenderId": "290826722594",
-  "measurementId": ""
+  "apiKey": "AIzaSyARHg6wRA34o2SfjKNPHaMy69sFNAE5oWw",
+  "authDomain": "coach-ayubu-pro.firebaseapp.com",
+  "projectId": "coach-ayubu-pro",
+  "storageBucket": "coach-ayubu-pro.firebasestorage.app",
+  "messagingSenderId": "428988357053",
+  "appId": "1:428988357053:web:49ff0de39c0d0fe2f69ad4",
+  "measurementId": "G-FSWSNKE245"
 }

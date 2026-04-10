@@ -109,9 +109,14 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (isOwner(userId) || isCoach());
+      // Allow anonymous users to read docs with clientCode (for code-based login)
+      allow read: if isAuthenticated() && (
+        isOwner(userId) ||
+        isCoach() ||
+        (resource.data.clientCode != null && resource.data.clientCode is string)
+      );
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isCoach());
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
                     (isOwner(userId) && request.resource.data.role == resource.data.role || isCoach());
       allow delete: if isCoach();
     }
