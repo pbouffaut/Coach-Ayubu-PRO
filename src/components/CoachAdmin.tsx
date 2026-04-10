@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, hashPassword, generateSecureCode, generateSecurePassword } from '../lib/firebase';
 import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, Timestamp, deleteDoc, getDocs, setDoc, orderBy, writeBatch } from 'firebase/firestore';
 import { UserProfile, Workout, WorkoutExercise, LibraryExercise } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -14,9 +14,11 @@ import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Checkbox } from './ui/checkbox';
-import { UserPlus, Dumbbell, Plus, Trash2, Users, Calendar, ChevronRight, Search, Activity, Target, BookOpen, Edit, Save, X, Video, Weight, Clock, ListChecks } from 'lucide-react';
+import { UserPlus, Dumbbell, Plus, Trash2, Users, Calendar, ChevronRight, Search, Activity, Target, BookOpen, Edit, Save, X, Video, Weight, Clock, ListChecks, Sparkles, BarChart3, Copy, Eye, EyeOff, Filter, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import AIWorkoutGenerator from './AIWorkoutGenerator';
 
 interface CoachAdminProps {
   user: UserProfile;
@@ -32,7 +34,12 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
   const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
   const [editingLibraryEx, setEditingLibraryEx] = useState<LibraryExercise | null>(null);
   const [isSavingLibrary, setIsSavingLibrary] = useState(false);
-  
+  const [showAIGenerator, setShowAIGenerator] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [clientFilter, setClientFilter] = useState<string>('all');
+  const [showPassword, setShowPassword] = useState(false);
+
   // New Client Form
   const [newClient, setNewClient] = useState({
     firstName: '',
@@ -45,8 +52,8 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
     primaryObjective: '',
     secondaryObjectives: '',
     medicalConditions: '',
-    clientCode: Math.random().toString(36).substring(7).toUpperCase(),
-    password: 'password123'
+    clientCode: generateSecureCode(),
+    password: generateSecurePassword()
   });
 
   // New Workout Form
@@ -115,14 +122,24 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
   const handleAddClient = async () => {
     try {
       const tempUid = 'client_' + Math.random().toString(36).substring(7);
+      const hashedPw = await hashPassword(newClient.password);
       await setDoc(doc(db, 'users', tempUid), {
         ...newClient,
         uid: tempUid,
         role: 'client',
-        currentWeight: newClient.initialWeight
+        currentWeight: newClient.initialWeight,
+        passwordHash: hashedPw,
+        password: undefined // don't store plaintext
       });
-      toast.success("Client ajouté avec succès !");
+      toast.success(`Client ajouté ! Code: ${newClient.clientCode} / Mot de passe: ${newClient.password}`);
       setIsAddingClient(false);
+      // Reset form with new codes
+      setNewClient({
+        ...newClient,
+        firstName: '', lastName: '', email: '',
+        clientCode: generateSecureCode(),
+        password: generateSecurePassword()
+      });
     } catch (error) {
       toast.error("Erreur lors de l'ajout du client");
     }
@@ -165,7 +182,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
       toast.error("Le nom de l'exercice est obligatoire");
       return;
     }
-    
+
     try {
       setIsSavingLibrary(true);
       const cleanData = {
@@ -175,7 +192,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
         videoUrl: newLibEx.videoUrl || '',
         trackingTypes: newLibEx.trackingTypes || ['reps']
       };
-      
+
       if (editingLibraryEx) {
         await updateDoc(doc(db, 'library', editingLibraryEx.id), cleanData);
         toast.success("Exercice mis à jour");
@@ -183,7 +200,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
         await addDoc(collection(db, 'library'), cleanData);
         toast.success("Exercice ajouté à la bibliothèque");
       }
-      
+
       setIsAddingToLibrary(false);
       setEditingLibraryEx(null);
       setNewLibEx({ name: '', explanation: '', muscles: '', videoUrl: '', trackingTypes: ['reps'] });
@@ -221,7 +238,8 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
 
   const confirmAddExercise = async () => {
     if (!editingWorkout || !configuringExercise) return;
-    
+
+    // Re-index: use current count for clean ordering
     const newEx = {
       name: configuringExercise.name,
       explanation: configuringExercise.explanation || '',
@@ -234,7 +252,12 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
       plannedDuration: configuringExercise.trackingTypes.includes('duration') ? configParams.plannedDuration : null,
       restTime: configParams.restTime,
       completed: false,
-      order: workoutExercises.length
+      order: workoutExercises.length,
+      actualSets: 0,
+      actualReps: 0,
+      actualWeight: 0,
+      actualDuration: '',
+      difficulty: null
     };
 
     await addDoc(collection(db, 'workouts', editingWorkout.id, 'exercises'), newEx);
@@ -245,7 +268,43 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
   const removeExerciseFromWorkout = async (exId: string) => {
     if (!editingWorkout) return;
     await deleteDoc(doc(db, 'workouts', editingWorkout.id, 'exercises', exId));
+
+    // Re-index remaining exercises
+    const remaining = workoutExercises.filter(e => e.id !== exId);
+    const batch = writeBatch(db);
+    remaining.forEach((ex, idx) => {
+      batch.update(doc(db, 'workouts', editingWorkout.id, 'exercises', ex.id), { order: idx });
+    });
+    await batch.commit();
   };
+
+  // Client stats helper
+  const getClientStats = (clientId: string) => {
+    const clientWorkouts = workouts.filter(w => w.clientId === clientId);
+    const completed = clientWorkouts.filter(w => w.status === 'completed' || w.status === 'auto-completed').length;
+    const planned = clientWorkouts.filter(w => w.status === 'planned').length;
+    return { total: clientWorkouts.length, completed, planned };
+  };
+
+  // Filtered workouts
+  const filteredWorkouts = workouts.filter(w => {
+    if (statusFilter !== 'all' && w.status !== statusFilter) return false;
+    if (clientFilter !== 'all' && w.clientId !== clientFilter) return false;
+    if (searchQuery) {
+      const client = clients.find(c => c.uid === w.clientId);
+      const clientName = client ? `${client.firstName} ${client.lastName}` : '';
+      return w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        clientName.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+    return true;
+  });
+
+  // Filtered library
+  const filteredLibrary = library.filter(ex => {
+    if (!searchQuery) return true;
+    return ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (ex.muscles || '').toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   return (
     <div className="space-y-8">
@@ -254,7 +313,11 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
           <h1 className="text-3xl font-bold text-blue-900">Espace Coach</h1>
           <p className="text-slate-500">Gérez vos clients et leurs programmes d'entraînement.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={() => setShowAIGenerator(true)} className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl">
+            <Sparkles className="mr-2" size={18} /> Générer avec l'IA
+          </Button>
+
           <Dialog open={isAddingClient} onOpenChange={setIsAddingClient}>
             <DialogTrigger render={
               <Button className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl">
@@ -273,6 +336,28 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                 <div className="space-y-2"><Label>Poids Visé (kg)</Label><Input type="number" value={newClient.targetWeight || ''} onChange={e => setNewClient({...newClient, targetWeight: parseInt(e.target.value) || 0})} /></div>
                 <div className="space-y-2"><Label>Objectif Principal</Label><Input value={newClient.primaryObjective} onChange={e => setNewClient({...newClient, primaryObjective: e.target.value})} /></div>
                 <div className="space-y-2 col-span-2"><Label>Objectifs Secondaires</Label><Textarea value={newClient.secondaryObjectives} onChange={e => setNewClient({...newClient, secondaryObjectives: e.target.value})} /></div>
+                <Separator className="col-span-2" />
+                <div className="col-span-2 bg-blue-50 p-4 rounded-xl space-y-3">
+                  <p className="text-sm font-bold text-blue-900">Identifiants de connexion (générés automatiquement)</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Code Client</Label>
+                      <div className="flex gap-2">
+                        <Input value={newClient.clientCode} readOnly className="font-mono font-bold" />
+                        <Button variant="outline" size="icon" onClick={() => navigator.clipboard.writeText(newClient.clientCode)}><Copy size={14} /></Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Mot de passe</Label>
+                      <div className="flex gap-2">
+                        <Input type={showPassword ? 'text' : 'password'} value={newClient.password} readOnly className="font-mono" />
+                        <Button variant="outline" size="icon" onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <DialogFooter><Button onClick={handleAddClient} className="bg-emerald-600 hover:bg-emerald-700 text-white">Créer le profil</Button></DialogFooter>
             </DialogContent>
@@ -305,54 +390,93 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
 
       <Tabs defaultValue="clients" className="w-full">
         <TabsList className="bg-slate-100 p-1 rounded-xl mb-6">
-          <TabsTrigger value="clients" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><Users size={16} className="mr-2" /> Clients</TabsTrigger>
-          <TabsTrigger value="workouts" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><Calendar size={16} className="mr-2" /> Entraînements</TabsTrigger>
-          <TabsTrigger value="library" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><BookOpen size={16} className="mr-2" /> Bibliothèque</TabsTrigger>
+          <TabsTrigger value="clients" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><Users size={16} className="mr-2" /> Clients ({clients.length})</TabsTrigger>
+          <TabsTrigger value="workouts" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><Calendar size={16} className="mr-2" /> Entraînements ({workouts.length})</TabsTrigger>
+          <TabsTrigger value="library" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-emerald-600"><BookOpen size={16} className="mr-2" /> Bibliothèque ({library.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="clients">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {clients.map(client => (
-              <Card key={client.uid} className="border-none shadow-md hover:shadow-lg transition-shadow overflow-hidden group">
-                <div className="h-2 bg-emerald-500"></div>
-                <CardHeader className="pb-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle className="text-xl text-blue-900">{client.firstName} {client.lastName}</CardTitle>
-                      <CardDescription>{client.email}</CardDescription>
+            {clients.map(client => {
+              const stats = getClientStats(client.uid);
+              return (
+                <Card key={client.uid} className="border-none shadow-md hover:shadow-lg transition-shadow overflow-hidden group">
+                  <div className="h-2 bg-emerald-500"></div>
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="text-xl text-blue-900">{client.firstName} {client.lastName}</CardTitle>
+                        <CardDescription>{client.email}</CardDescription>
+                      </div>
+                      <Button variant="ghost" size="icon" className="text-slate-400 hover:text-blue-600" onClick={() => setEditingClient(client)}>
+                        <Edit size={18} />
+                      </Button>
                     </div>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-blue-600" onClick={() => setEditingClient(client)}>
-                      <Edit size={18} />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-slate-50 p-3 rounded-xl">
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1">Poids Actuel</p>
-                      <p className="text-lg font-bold text-blue-900">{client.currentWeight || client.initialWeight || '--'} kg</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-slate-50 p-3 rounded-xl text-center">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1">Poids</p>
+                        <p className="text-lg font-bold text-blue-900">{client.currentWeight || client.initialWeight || '--'}</p>
+                      </div>
+                      <div className="bg-emerald-50 p-3 rounded-xl text-center">
+                        <p className="text-[10px] uppercase tracking-wider text-emerald-600 font-bold mb-1">Objectif</p>
+                        <p className="text-lg font-bold text-blue-900">{client.targetWeight || '--'}</p>
+                      </div>
+                      <div className="bg-blue-50 p-3 rounded-xl text-center">
+                        <p className="text-[10px] uppercase tracking-wider text-blue-600 font-bold mb-1">Séances</p>
+                        <p className="text-lg font-bold text-blue-900">{stats.completed}<span className="text-xs text-slate-400">/{stats.total}</span></p>
+                      </div>
                     </div>
-                    <div className="bg-emerald-50 p-3 rounded-xl">
-                      <p className="text-[10px] uppercase tracking-wider text-emerald-600 font-bold mb-1">Objectif Poids</p>
-                      <p className="text-lg font-bold text-blue-900">{client.targetWeight || '--'} kg</p>
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Objectif Principal</p>
+                      <p className="text-sm font-medium text-slate-700 truncate">{client.primaryObjective || "Non défini"}</p>
                     </div>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Objectif Principal</p>
-                    <p className="text-sm font-medium text-slate-700 truncate">{client.primaryObjective || "Non défini"}</p>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between items-center">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Code: {client.clientCode}</div>
-                    <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">Détails <ChevronRight size={14} className="ml-1" /></Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    <Separator />
+                    <div className="flex justify-between items-center">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold flex items-center gap-2">
+                        Code: <span className="font-mono text-blue-600">{client.clientCode}</span>
+                      </div>
+                      <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">Détails <ChevronRight size={14} className="ml-1" /></Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </TabsContent>
 
         <TabsContent value="workouts">
+          {/* Filters */}
+          <div className="flex flex-col md:flex-row gap-3 mb-4">
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                placeholder="Rechercher une séance..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger className="w-48"><SelectValue placeholder="Tous les clients" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les clients</SelectItem>
+                {clients.map(c => (<SelectItem key={c.uid} value={c.uid}>{c.firstName} {c.lastName}</SelectItem>))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Statut" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                <SelectItem value="planned">Planifié</SelectItem>
+                <SelectItem value="in-progress">En cours</SelectItem>
+                <SelectItem value="completed">Terminé</SelectItem>
+                <SelectItem value="auto-completed">Auto-terminé</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           <Card className="border-none shadow-md">
             <ScrollArea className="h-[600px]">
               <table className="w-full text-left border-collapse">
@@ -366,14 +490,25 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {workouts.map(workout => {
+                  {filteredWorkouts.map(workout => {
                     const client = clients.find(c => c.uid === workout.clientId);
                     return (
                       <tr key={workout.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50">
                         <td className="p-4"><div className="font-bold text-blue-900">{client ? `${client.firstName} ${client.lastName}` : 'Inconnu'}</div></td>
                         <td className="p-4 text-slate-600">{workout.name}</td>
-                        <td className="p-4 text-slate-500 text-sm">{workout.date ? format(workout.date.toDate(), 'dd/MM/yyyy') : '-'}</td>
-                        <td className="p-4"><Badge className={`border-none text-[10px] uppercase ${workout.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : workout.status === 'in-progress' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{workout.status}</Badge></td>
+                        <td className="p-4 text-slate-500 text-sm">{workout.date ? format(workout.date.toDate(), 'dd MMM yyyy', { locale: fr }) : '-'}</td>
+                        <td className="p-4">
+                          <Badge className={`border-none text-[10px] uppercase ${
+                            workout.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                            workout.status === 'in-progress' ? 'bg-blue-100 text-blue-700' :
+                            workout.status === 'auto-completed' ? 'bg-amber-100 text-amber-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {workout.status === 'planned' ? 'Planifié' :
+                             workout.status === 'in-progress' ? 'En cours' :
+                             workout.status === 'completed' ? 'Terminé' : 'Auto-terminé'}
+                          </Badge>
+                        </td>
                         <td className="p-4 flex gap-2">
                           <Button variant="ghost" size="icon" className="text-blue-600 hover:bg-blue-50" onClick={() => setEditingWorkout(workout)}><Edit size={16} /></Button>
                           <Button variant="ghost" size="icon" className="text-rose-500 hover:bg-rose-50" onClick={() => deleteDoc(doc(db, 'workouts', workout.id))}><Trash2 size={16} /></Button>
@@ -381,6 +516,9 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                       </tr>
                     );
                   })}
+                  {filteredWorkouts.length === 0 && (
+                    <tr><td colSpan={5} className="p-12 text-center text-slate-400 italic">Aucun entraînement trouvé.</td></tr>
+                  )}
                 </tbody>
               </table>
             </ScrollArea>
@@ -389,7 +527,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
 
         <TabsContent value="library">
           <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="flex items-center gap-4">
                 <h2 className="text-xl font-bold text-blue-900">Bibliothèque d'Exercices</h2>
                 {library.length === 0 && (
@@ -398,69 +536,80 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                   </Button>
                 )}
               </div>
-              <Dialog 
-                open={isAddingToLibrary || !!editingLibraryEx} 
-                onOpenChange={(open) => {
-                  if (!open) {
-                    setIsAddingToLibrary(false);
-                    setEditingLibraryEx(null);
-                    setNewLibEx({ name: '', explanation: '', muscles: '', videoUrl: '', trackingTypes: ['reps'] });
-                  }
-                }}
-              >
-                <DialogTrigger render={
-                  <Button className="bg-blue-900 text-white" onClick={() => setIsAddingToLibrary(true)}>
-                    <Plus size={18} className="mr-2" /> Ajouter un exercice
-                  </Button>
-                } />
-                <DialogContent className="max-w-xl">
-                  <DialogHeader>
-                    <DialogTitle>{editingLibraryEx ? "Modifier l'exercice" : "Nouvel exercice type"}</DialogTitle>
-                  </DialogHeader>
-                  <div className="grid grid-cols-2 gap-4 py-4">
-                    <div className="col-span-2 space-y-2"><Label>Nom de l'exercice</Label><Input value={newLibEx.name} onChange={e => setNewLibEx({...newLibEx, name: e.target.value})} placeholder="ex: Pompes" /></div>
-                    <div className="col-span-2 space-y-2"><Label>Muscles visés</Label><Input value={newLibEx.muscles} onChange={e => setNewLibEx({...newLibEx, muscles: e.target.value})} placeholder="ex: Pectoraux, Triceps" /></div>
-                    
-                    <div className="col-span-2 space-y-3">
-                      <Label>Variables de suivi nécessaires :</Label>
-                      <div className="flex gap-4">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="reps" checked={newLibEx.trackingTypes?.includes('reps')} onCheckedChange={(checked) => {
-                            const current = newLibEx.trackingTypes || [];
-                            setNewLibEx({...newLibEx, trackingTypes: checked ? [...current, 'reps'] : current.filter(t => t !== 'reps')});
-                          }} />
-                          <label htmlFor="reps" className="text-sm font-medium leading-none">Répétitions</label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="weight" checked={newLibEx.trackingTypes?.includes('weight')} onCheckedChange={(checked) => {
-                            const current = newLibEx.trackingTypes || [];
-                            setNewLibEx({...newLibEx, trackingTypes: checked ? [...current, 'weight'] : current.filter(t => t !== 'weight')});
-                          }} />
-                          <label htmlFor="weight" className="text-sm font-medium leading-none">Poids</label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Checkbox id="duration" checked={newLibEx.trackingTypes?.includes('duration')} onCheckedChange={(checked) => {
-                            const current = newLibEx.trackingTypes || [];
-                            setNewLibEx({...newLibEx, trackingTypes: checked ? [...current, 'duration'] : current.filter(t => t !== 'duration')});
-                          }} />
-                          <label htmlFor="duration" className="text-sm font-medium leading-none">Durée</label>
+              <div className="flex gap-2">
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder="Rechercher..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="pl-9 w-48"
+                  />
+                </div>
+                <Dialog
+                  open={isAddingToLibrary || !!editingLibraryEx}
+                  onOpenChange={(open) => {
+                    if (!open) {
+                      setIsAddingToLibrary(false);
+                      setEditingLibraryEx(null);
+                      setNewLibEx({ name: '', explanation: '', muscles: '', videoUrl: '', trackingTypes: ['reps'] });
+                    }
+                  }}
+                >
+                  <DialogTrigger render={
+                    <Button className="bg-blue-900 text-white" onClick={() => setIsAddingToLibrary(true)}>
+                      <Plus size={18} className="mr-2" /> Ajouter un exercice
+                    </Button>
+                  } />
+                  <DialogContent className="max-w-xl">
+                    <DialogHeader>
+                      <DialogTitle>{editingLibraryEx ? "Modifier l'exercice" : "Nouvel exercice type"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid grid-cols-2 gap-4 py-4">
+                      <div className="col-span-2 space-y-2"><Label>Nom de l'exercice</Label><Input value={newLibEx.name} onChange={e => setNewLibEx({...newLibEx, name: e.target.value})} placeholder="ex: Pompes" /></div>
+                      <div className="col-span-2 space-y-2"><Label>Muscles visés</Label><Input value={newLibEx.muscles} onChange={e => setNewLibEx({...newLibEx, muscles: e.target.value})} placeholder="ex: Pectoraux, Triceps" /></div>
+
+                      <div className="col-span-2 space-y-3">
+                        <Label>Variables de suivi nécessaires :</Label>
+                        <div className="flex gap-4">
+                          <div className="flex items-center space-x-2">
+                            <Checkbox id="reps" checked={newLibEx.trackingTypes?.includes('reps')} onCheckedChange={(checked) => {
+                              const current = newLibEx.trackingTypes || [];
+                              setNewLibEx({...newLibEx, trackingTypes: checked ? [...current, 'reps'] : current.filter(t => t !== 'reps')});
+                            }} />
+                            <label htmlFor="reps" className="text-sm font-medium leading-none">Répétitions</label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox id="weight" checked={newLibEx.trackingTypes?.includes('weight')} onCheckedChange={(checked) => {
+                              const current = newLibEx.trackingTypes || [];
+                              setNewLibEx({...newLibEx, trackingTypes: checked ? [...current, 'weight'] : current.filter(t => t !== 'weight')});
+                            }} />
+                            <label htmlFor="weight" className="text-sm font-medium leading-none">Poids</label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox id="duration" checked={newLibEx.trackingTypes?.includes('duration')} onCheckedChange={(checked) => {
+                              const current = newLibEx.trackingTypes || [];
+                              setNewLibEx({...newLibEx, trackingTypes: checked ? [...current, 'duration'] : current.filter(t => t !== 'duration')});
+                            }} />
+                            <label htmlFor="duration" className="text-sm font-medium leading-none">Durée</label>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="col-span-2 space-y-2"><Label>URL Vidéo (Optionnel)</Label><Input value={newLibEx.videoUrl} onChange={e => setNewLibEx({...newLibEx, videoUrl: e.target.value})} /></div>
-                    <div className="col-span-2 space-y-2"><Label>Explication / Bénéfices</Label><Textarea value={newLibEx.explanation} onChange={e => setNewLibEx({...newLibEx, explanation: e.target.value})} /></div>
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={handleAddToLibrary} className="bg-emerald-600 text-white" disabled={isSavingLibrary}>
-                      {isSavingLibrary ? "Enregistrement..." : "Enregistrer"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                      <div className="col-span-2 space-y-2"><Label>URL Vidéo (Optionnel)</Label><Input value={newLibEx.videoUrl} onChange={e => setNewLibEx({...newLibEx, videoUrl: e.target.value})} /></div>
+                      <div className="col-span-2 space-y-2"><Label>Explication / Bénéfices</Label><Textarea value={newLibEx.explanation} onChange={e => setNewLibEx({...newLibEx, explanation: e.target.value})} /></div>
+                    </div>
+                    <DialogFooter>
+                      <Button onClick={handleAddToLibrary} className="bg-emerald-600 text-white" disabled={isSavingLibrary}>
+                        {isSavingLibrary ? "Enregistrement..." : "Enregistrer"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {library.map(ex => (
+              {filteredLibrary.map(ex => (
                 <Card key={ex.id} className="border-none shadow-sm hover:shadow-md transition-all">
                   <CardHeader className="pb-2">
                     <div className="flex justify-between items-start">
@@ -478,10 +627,10 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
                   <CardContent className="space-y-2">
                     <p className="text-xs text-slate-500 line-clamp-2">{ex.explanation}</p>
                     <div className="flex justify-end gap-2 pt-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="text-blue-600 hover:bg-blue-50" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-blue-600 hover:bg-blue-50"
                         onClick={() => {
                           setEditingLibraryEx(ex);
                           setNewLibEx({
@@ -541,11 +690,11 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
               <Button variant="ghost" size="icon" onClick={() => setEditingWorkout(null)}><X size={20} /></Button>
             </div>
           </DialogHeader>
-          
+
           <div className="flex-1 flex overflow-hidden">
             {/* Left: Current Workout Exercises */}
             <div className="flex-1 border-right p-6 overflow-y-auto space-y-4">
-              <h3 className="font-bold text-slate-700 flex items-center gap-2"><Dumbbell size={18} className="text-emerald-500" /> Exercices de la séance</h3>
+              <h3 className="font-bold text-slate-700 flex items-center gap-2"><Dumbbell size={18} className="text-emerald-500" /> Exercices de la séance ({workoutExercises.length})</h3>
               {workoutExercises.length > 0 ? (
                 workoutExercises.map((ex, idx) => (
                   <div key={ex.id} className="bg-white border rounded-xl p-4 shadow-sm space-y-3 relative group">
@@ -593,9 +742,9 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
               <h3 className="font-bold text-slate-700 flex items-center gap-2"><BookOpen size={18} className="text-blue-500" /> Bibliothèque</h3>
               <div className="space-y-2">
                 {library.map(ex => (
-                  <Button 
-                    key={ex.id} 
-                    variant="outline" 
+                  <Button
+                    key={ex.id}
+                    variant="outline"
                     className="w-full justify-between bg-white hover:border-emerald-500 hover:text-emerald-600 h-auto py-3 px-4 text-left"
                     onClick={() => {
                       setConfiguringExercise(ex);
@@ -618,7 +767,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
               </div>
             </div>
           </div>
-          
+
           <DialogFooter className="p-6 border-t bg-white">
             <Button onClick={() => setEditingWorkout(null)} className="bg-blue-900 text-white w-full h-12 rounded-xl font-bold">ENREGISTRER LA SÉANCE</Button>
           </DialogFooter>
@@ -666,6 +815,15 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* AI Workout Generator */}
+      <AIWorkoutGenerator
+        open={showAIGenerator}
+        onClose={() => setShowAIGenerator(false)}
+        clients={clients}
+        library={library}
+        coachId={user.uid}
+      />
     </div>
   );
 }

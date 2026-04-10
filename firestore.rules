@@ -71,9 +71,8 @@ service cloud.firestore {
     }
 
     function isCoach() {
-      return isAuthenticated() && 
-        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'coach') || 
-         (request.auth.token.email == "pbouffaut@industriousoffice.com" && request.auth.token.email_verified == true));
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'coach';
     }
 
     function isClientOf(clientId) {

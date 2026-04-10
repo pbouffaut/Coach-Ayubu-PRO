@@ -1,23 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from './lib/firebase';
+import { auth, db, hashPassword } from './lib/firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, updateDoc, Timestamp, getDocs } from 'firebase/firestore';
 import { UserProfile, Workout } from './types';
 import { Button } from './components/ui/button';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
-import { Trophy, LogOut, User, Calendar, Play, CheckCircle2, ChevronRight, Activity, Dumbbell, Clock } from 'lucide-react';
+import { Trophy, LogOut, User, Calendar, Play, CheckCircle2, ChevronRight, Activity, Dumbbell, Clock, BarChart3 } from 'lucide-react';
 import CoachAdmin from './components/CoachAdmin';
 import Dashboard from './components/Dashboard';
 import WorkoutSession from './components/WorkoutSession';
 import ClientProfile from './components/ClientProfile';
+import Analytics from './components/Analytics';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
-  const [view, setView] = useState<'dashboard' | 'session' | 'coach' | 'profile'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'session' | 'coach' | 'profile' | 'analytics'>('dashboard');
   const [loginMode, setLoginMode] = useState<'google' | 'code'>('google');
   const [clientCode, setClientCode] = useState('');
   const [clientPassword, setClientPassword] = useState('');
@@ -33,17 +34,16 @@ export default function App() {
             setView('coach');
           }
         } else {
-          // New user - default to client for demo, but coach can change it
+          // New user - check if they have coach role in Firestore
           const newUser: UserProfile = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
-            role: firebaseUser.email === 'pbouffaut@industriousoffice.com' ? 'coach' : 'client',
+            role: 'client',
             firstName: firebaseUser.displayName?.split(' ')[0] || 'Prénom',
             lastName: firebaseUser.displayName?.split(' ')[1] || 'Nom',
           };
           await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
           setUser(newUser);
-          if (newUser.role === 'coach') setView('coach');
         }
       } else {
         setUser(null);
@@ -67,13 +67,13 @@ export default function App() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       if (!snapshot.empty) {
         const workout = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Workout;
-        
+
         // Auto-stop logic (4 hours)
         if (workout.startTime) {
           const startTime = workout.startTime.toDate();
           const now = new Date();
           const diffHours = (now.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-          
+
           if (diffHours >= 4) {
             updateDoc(doc(db, 'workouts', workout.id), {
               status: 'auto-completed',
@@ -110,16 +110,22 @@ export default function App() {
       return;
     }
 
+    const hashedPw = await hashPassword(clientPassword);
     const q = query(
       collection(db, 'users'),
       where('clientCode', '==', clientCode.toUpperCase()),
-      where('password', '==', clientPassword)
+      where('passwordHash', '==', hashedPw)
     );
 
     const snapshot = await getDocs(q);
     if (!snapshot.empty) {
       const userData = snapshot.docs[0].data() as UserProfile;
       setUser(userData);
+      if (userData.role === 'coach') {
+        setView('coach');
+      } else {
+        setView('dashboard');
+      }
       toast.success(`Bienvenue ${userData.firstName} !`);
     } else {
       toast.error("Code ou mot de passe incorrect");
@@ -145,7 +151,7 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-blue-900 flex flex-col items-center justify-center p-4 text-white">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="max-w-md w-full text-center space-y-8"
@@ -156,20 +162,20 @@ export default function App() {
             </div>
           </div>
           <div className="space-y-2">
-            <h1 className="text-4xl font-bold tracking-tight">Coach Pro</h1>
+            <h1 className="text-4xl font-bold tracking-tight">Coach Ayubu PRO</h1>
             <p className="text-blue-100 text-lg">Suivez vos entraînements et dépassez vos limites.</p>
           </div>
           <div className="bg-white/10 backdrop-blur-md p-8 rounded-3xl border border-white/20 space-y-6">
             {loginMode === 'google' ? (
               <>
-                <Button 
+                <Button
                   onClick={handleLogin}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-12 text-lg rounded-xl transition-all hover:scale-[1.02]"
                 >
                   Connexion avec Google
                 </Button>
-                <Button 
-                  variant="link" 
+                <Button
+                  variant="link"
                   onClick={() => setLoginMode('code')}
                   className="w-full text-blue-200 hover:text-white"
                 >
@@ -180,9 +186,9 @@ export default function App() {
               <div className="space-y-4">
                 <div className="space-y-2 text-left">
                   <label className="text-sm font-medium text-blue-200">Code Client</label>
-                  <input 
-                    type="text" 
-                    value={clientCode} 
+                  <input
+                    type="text"
+                    value={clientCode}
                     onChange={e => setClientCode(e.target.value)}
                     className="w-full bg-white/10 border border-white/20 rounded-xl h-12 px-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     placeholder="EX: ABC123"
@@ -190,22 +196,22 @@ export default function App() {
                 </div>
                 <div className="space-y-2 text-left">
                   <label className="text-sm font-medium text-blue-200">Mot de passe</label>
-                  <input 
-                    type="password" 
-                    value={clientPassword} 
+                  <input
+                    type="password"
+                    value={clientPassword}
                     onChange={e => setClientPassword(e.target.value)}
                     className="w-full bg-white/10 border border-white/20 rounded-xl h-12 px-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     placeholder="••••••••"
                   />
                 </div>
-                <Button 
+                <Button
                   onClick={handleCodeLogin}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-12 text-lg rounded-xl transition-all hover:scale-[1.02]"
                 >
                   Se connecter
                 </Button>
-                <Button 
-                  variant="link" 
+                <Button
+                  variant="link"
                   onClick={() => setLoginMode('google')}
                   className="w-full text-blue-200 hover:text-white"
                 >
@@ -213,13 +219,13 @@ export default function App() {
                 </Button>
               </div>
             )}
-            
+
             <div className="relative">
               <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-white/20"></span></div>
               <div className="relative flex justify-center text-xs uppercase"><span className="bg-blue-900 px-2 text-blue-200">Aide</span></div>
             </div>
             <p className="text-sm text-blue-200">
-              {loginMode === 'google' 
+              {loginMode === 'google'
                 ? "Utilisez votre compte Google pour vous identifier. Si vous êtes un coach, vous aurez accès à l'interface de gestion."
                 : "Entrez le code et le mot de passe fournis par votre coach."}
             </p>
@@ -237,19 +243,35 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView(user.role === 'coach' ? 'coach' : 'dashboard')}>
             <Trophy className="text-emerald-400" size={28} />
-            <span className="font-bold text-xl tracking-tight">COACH<span className="text-emerald-400">PRO</span></span>
+            <span className="font-bold text-xl tracking-tight">COACH<span className="text-emerald-400">AYUBU</span></span>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <div className="hidden md:flex items-center gap-2 mr-4">
               {user.role === 'client' && (
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setView('profile')}
-                  className={`text-sm font-medium ${view === 'profile' ? 'text-emerald-400' : 'text-blue-200'}`}
-                >
-                  Mon Profil
-                </Button>
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setView('dashboard')}
+                    className={`text-sm font-medium ${view === 'dashboard' ? 'text-emerald-400' : 'text-blue-200'}`}
+                  >
+                    Dashboard
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setView('analytics')}
+                    className={`text-sm font-medium ${view === 'analytics' ? 'text-emerald-400' : 'text-blue-200'}`}
+                  >
+                    Statistiques
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setView('profile')}
+                    className={`text-sm font-medium ${view === 'profile' ? 'text-emerald-400' : 'text-blue-200'}`}
+                  >
+                    Mon Profil
+                  </Button>
+                </>
               )}
             </div>
             <div className="hidden md:flex flex-col items-end">
@@ -286,6 +308,11 @@ export default function App() {
               <ClientProfile user={user} />
             </motion.div>
           )}
+          {view === 'analytics' && user.role === 'client' && (
+            <motion.div key="analytics" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <Analytics user={user} />
+            </motion.div>
+          )}
         </AnimatePresence>
       </main>
 
@@ -295,6 +322,10 @@ export default function App() {
           <Button variant="ghost" className={`flex flex-col gap-1 h-auto ${view === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'}`} onClick={() => setView('dashboard')}>
             <Activity size={20} />
             <span className="text-[10px]">Dashboard</span>
+          </Button>
+          <Button variant="ghost" className={`flex flex-col gap-1 h-auto ${view === 'analytics' ? 'text-emerald-600' : 'text-slate-400'}`} onClick={() => setView('analytics')}>
+            <BarChart3 size={20} />
+            <span className="text-[10px]">Stats</span>
           </Button>
           <Button variant="ghost" className={`flex flex-col gap-1 h-auto ${view === 'profile' ? 'text-emerald-600' : 'text-slate-400'}`} onClick={() => setView('profile')}>
             <User size={20} />

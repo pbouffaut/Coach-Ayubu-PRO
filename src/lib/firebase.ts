@@ -19,6 +19,33 @@ async function testConnection() {
 }
 testConnection();
 
+// Simple password hashing (SHA-256) - not bcrypt but avoids plaintext storage
+export async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + '_coach_ayubu_salt');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function generateSecureCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+export function generateSecurePassword(): string {
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#';
+  let pw = '';
+  for (let i = 0; i < 10; i++) {
+    pw += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pw;
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',

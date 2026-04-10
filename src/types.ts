@@ -1,3 +1,5 @@
+import { Timestamp } from 'firebase/firestore';
+
 export type UserRole = 'coach' | 'client';
 
 export interface UserProfile {
@@ -16,14 +18,14 @@ export interface UserProfile {
   primaryObjective?: string;
   secondaryObjectives?: string;
   clientCode?: string;
-  password?: string;
+  passwordHash?: string;
 }
 
 export interface WeightEntry {
   id: string;
   userId: string;
   weight: number;
-  date: any; // Firestore Timestamp
+  date: Timestamp;
 }
 
 export type WorkoutStatus = 'planned' | 'in-progress' | 'completed' | 'auto-completed';
@@ -33,10 +35,10 @@ export interface Workout {
   clientId: string;
   coachId: string;
   name: string;
-  date: any; // Firestore Timestamp
+  date: Timestamp;
   status: WorkoutStatus;
-  startTime?: any;
-  endTime?: any;
+  startTime?: Timestamp;
+  endTime?: Timestamp;
 }
 
 export interface WorkoutExercise {
@@ -67,4 +69,14 @@ export interface LibraryExercise {
   muscles?: string;
   videoUrl?: string;
   trackingTypes: ('reps' | 'weight' | 'duration')[];
+}
+
+export interface PerformanceStats {
+  totalWorkouts: number;
+  completedWorkouts: number;
+  totalExercises: number;
+  avgDifficulty: string;
+  streakDays: number;
+  weightProgress: number;
+  favoriteExercise: string;
 }
