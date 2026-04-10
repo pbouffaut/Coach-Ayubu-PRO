@@ -36,6 +36,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
   const [editingLibraryEx, setEditingLibraryEx] = useState<LibraryExercise | null>(null);
   const [isSavingLibrary, setIsSavingLibrary] = useState(false);
   const [showAIGenerator, setShowAIGenerator] = useState(false);
+  const [builderTab, setBuilderTab] = useState<'exercises' | 'library'>('exercises');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [clientFilter, setClientFilter] = useState<string>('all');
@@ -686,7 +687,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
 
       {/* Workout Builder Dialog */}
       <Dialog open={!!editingWorkout} onOpenChange={(open) => !open && setEditingWorkout(null)}>
-        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogContent className="max-w-4xl w-[95vw] md:w-auto h-[95vh] md:h-[90vh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="p-6 border-b bg-slate-50">
             <div className="flex justify-between items-center">
               <div>
@@ -697,79 +698,101 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
             </div>
           </DialogHeader>
 
-          <div className="flex-1 flex overflow-hidden">
-            {/* Left: Current Workout Exercises */}
-            <div className="flex-1 border-right p-6 overflow-y-auto space-y-4">
-              <h3 className="font-bold text-slate-700 flex items-center gap-2"><Dumbbell size={18} className="text-emerald-500" /> Exercices de la séance ({workoutExercises.length})</h3>
-              {workoutExercises.length > 0 ? (
-                workoutExercises.map((ex, idx) => (
-                  <div key={ex.id} className="bg-white border rounded-xl p-4 shadow-sm space-y-3 relative group">
-                    <div className="flex justify-between items-start">
-                      <div className="font-bold text-blue-900">{idx + 1}. {ex.name}</div>
-                      <Button variant="ghost" size="icon" className="text-rose-400 hover:text-rose-600 h-6 w-6" onClick={() => removeExerciseFromWorkout(ex.id)}><Trash2 size={14} /></Button>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase">Séries</Label>
-                        <Input type="number" value={ex.plannedSets || ''} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedSets: parseInt(e.target.value) || 0 })} className="h-8" />
-                      </div>
-                      {ex.trackingTypes?.includes('reps') && (
-                        <div className="space-y-1">
-                          <Label className="text-[10px] uppercase">Reps</Label>
-                          <Input type="number" value={ex.plannedReps || ''} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedReps: parseInt(e.target.value) || 0 })} className="h-8" />
-                        </div>
-                      )}
-                      {ex.trackingTypes?.includes('weight') && (
-                        <div className="space-y-1">
-                          <Label className="text-[10px] uppercase">Poids (kg)</Label>
-                          <Input type="number" value={ex.plannedWeight || ''} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedWeight: parseInt(e.target.value) || 0 })} className="h-8" />
-                        </div>
-                      )}
-                      {ex.trackingTypes?.includes('duration') && (
-                        <div className="space-y-1">
-                          <Label className="text-[10px] uppercase">Durée</Label>
-                          <Input value={ex.plannedDuration} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedDuration: e.target.value })} className="h-8" />
-                        </div>
-                      )}
-                      <div className="space-y-1">
-                        <Label className="text-[10px] uppercase">Repos</Label>
-                        <Input value={ex.restTime} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { restTime: e.target.value })} className="h-8" />
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-12 text-slate-400 italic border-2 border-dashed rounded-2xl">Ajoutez des exercices depuis la bibliothèque à droite.</div>
-              )}
-            </div>
+          <div className="flex-1 overflow-hidden">
+            {/* Mobile: Tabs layout / Desktop: Side-by-side */}
+            <div className="flex flex-col md:flex-row h-full">
+              {/* Mobile tab switcher */}
+              <div className="md:hidden flex border-b bg-slate-50">
+                <button
+                  className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${builderTab === 'exercises' ? 'border-emerald-500 text-emerald-700 bg-white' : 'border-transparent text-slate-400'}`}
+                  onClick={() => setBuilderTab('exercises')}
+                >
+                  <Dumbbell size={16} /> Séance ({workoutExercises.length})
+                </button>
+                <button
+                  className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${builderTab === 'library' ? 'border-blue-500 text-blue-700 bg-white' : 'border-transparent text-slate-400'}`}
+                  onClick={() => setBuilderTab('library')}
+                >
+                  <BookOpen size={16} /> Bibliothèque
+                </button>
+              </div>
 
-            {/* Right: Library Selection */}
-            <div className="w-80 bg-slate-50 p-6 overflow-y-auto border-l space-y-4">
-              <h3 className="font-bold text-slate-700 flex items-center gap-2"><BookOpen size={18} className="text-blue-500" /> Bibliothèque</h3>
-              <div className="space-y-2">
-                {library.map(ex => (
-                  <Button
-                    key={ex.id}
-                    variant="outline"
-                    className="w-full justify-between bg-white hover:border-emerald-500 hover:text-emerald-600 h-auto py-3 px-4 text-left"
-                    onClick={() => {
-                      setConfiguringExercise(ex);
-                      setConfigParams({
-                        plannedSets: 3,
-                        plannedReps: 12,
-                        plannedWeight: 0,
-                        plannedDuration: ex.trackingTypes.includes('duration') ? '1 min' : '',
-                        restTime: '60s'
-                      });
-                    }}
-                  >
-                    <div className="flex flex-col items-start">
-                      <span className="font-bold text-sm">{ex.name}</span>
-                      <span className="text-[10px] text-slate-400">{ex.muscles}</span>
+              {/* Exercises panel */}
+              <div className={`flex-1 p-4 md:p-6 overflow-y-auto space-y-4 ${builderTab === 'library' ? 'hidden md:block' : ''}`}>
+                <h3 className="hidden md:flex font-bold text-slate-700 items-center gap-2"><Dumbbell size={18} className="text-emerald-500" /> Exercices de la séance ({workoutExercises.length})</h3>
+                {workoutExercises.length > 0 ? (
+                  workoutExercises.map((ex, idx) => (
+                    <div key={ex.id} className="bg-white border rounded-xl p-3 md:p-4 shadow-sm space-y-3 relative group">
+                      <div className="flex justify-between items-start">
+                        <div className="font-bold text-blue-900 text-sm md:text-base">{idx + 1}. {ex.name}</div>
+                        <Button variant="ghost" size="icon" className="text-rose-400 hover:text-rose-600 h-6 w-6" onClick={() => removeExerciseFromWorkout(ex.id)}><Trash2 size={14} /></Button>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase">Séries</Label>
+                          <Input type="number" value={ex.plannedSets || ''} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedSets: parseInt(e.target.value) || 0 })} className="h-8" />
+                        </div>
+                        {ex.trackingTypes?.includes('reps') && (
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase">Reps</Label>
+                            <Input type="number" value={ex.plannedReps || ''} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedReps: parseInt(e.target.value) || 0 })} className="h-8" />
+                          </div>
+                        )}
+                        {ex.trackingTypes?.includes('weight') && (
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase">Poids (kg)</Label>
+                            <Input type="number" value={ex.plannedWeight || ''} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedWeight: parseInt(e.target.value) || 0 })} className="h-8" />
+                          </div>
+                        )}
+                        {ex.trackingTypes?.includes('duration') && (
+                          <div className="space-y-1">
+                            <Label className="text-[10px] uppercase">Durée</Label>
+                            <Input value={ex.plannedDuration} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { plannedDuration: e.target.value })} className="h-8" />
+                          </div>
+                        )}
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase">Repos</Label>
+                          <Input value={ex.restTime} onChange={e => updateDoc(doc(db, 'workouts', editingWorkout!.id, 'exercises', ex.id), { restTime: e.target.value })} className="h-8" />
+                        </div>
+                      </div>
                     </div>
-                    <Plus size={16} />
-                  </Button>
-                ))}
+                  ))
+                ) : (
+                  <div className="text-center py-8 md:py-12 text-slate-400 italic border-2 border-dashed rounded-2xl text-sm">
+                    <BookOpen size={24} className="mx-auto mb-2 opacity-30" />
+                    {window.innerWidth < 768 ? "Allez dans l'onglet Bibliothèque pour ajouter des exercices." : "Ajoutez des exercices depuis la bibliothèque à droite."}
+                  </div>
+                )}
+              </div>
+
+              {/* Library panel */}
+              <div className={`md:w-72 lg:w-80 bg-slate-50 p-4 md:p-6 overflow-y-auto md:border-l space-y-3 ${builderTab === 'exercises' ? 'hidden md:block' : ''}`}>
+                <h3 className="hidden md:flex font-bold text-slate-700 items-center gap-2"><BookOpen size={18} className="text-blue-500" /> Bibliothèque</h3>
+                <div className="space-y-2">
+                  {library.map(ex => (
+                    <Button
+                      key={ex.id}
+                      variant="outline"
+                      className="w-full justify-between bg-white hover:border-emerald-500 hover:text-emerald-600 h-auto py-3 px-4 text-left"
+                      onClick={() => {
+                        setConfiguringExercise(ex);
+                        setConfigParams({
+                          plannedSets: 3,
+                          plannedReps: 12,
+                          plannedWeight: 0,
+                          plannedDuration: ex.trackingTypes.includes('duration') ? '1 min' : '',
+                          restTime: '60s'
+                        });
+                      }}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span className="font-bold text-sm">{ex.name}</span>
+                        <span className="text-[10px] text-slate-400">{ex.muscles}</span>
+                      </div>
+                      <Plus size={16} />
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
