@@ -687,7 +687,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
 
       {/* Workout Builder Dialog */}
       <Dialog open={!!editingWorkout} onOpenChange={(open) => !open && setEditingWorkout(null)}>
-        <DialogContent className="max-w-4xl w-[95vw] md:w-auto h-[95vh] md:h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogContent className="max-w-2xl w-[95vw] h-[90vh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="p-6 border-b bg-slate-50">
             <div className="flex justify-between items-center">
               <div>
@@ -698,28 +698,26 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
             </div>
           </DialogHeader>
 
-          <div className="flex-1 overflow-hidden">
-            {/* Mobile: Tabs layout / Desktop: Side-by-side */}
-            <div className="flex flex-col md:flex-row h-full">
-              {/* Mobile tab switcher */}
-              <div className="md:hidden flex border-b bg-slate-50">
-                <button
-                  className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${builderTab === 'exercises' ? 'border-emerald-500 text-emerald-700 bg-white' : 'border-transparent text-slate-400'}`}
-                  onClick={() => setBuilderTab('exercises')}
-                >
-                  <Dumbbell size={16} /> Séance ({workoutExercises.length})
-                </button>
-                <button
-                  className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${builderTab === 'library' ? 'border-blue-500 text-blue-700 bg-white' : 'border-transparent text-slate-400'}`}
-                  onClick={() => setBuilderTab('library')}
-                >
-                  <BookOpen size={16} /> Bibliothèque
-                </button>
-              </div>
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {/* Tab switcher */}
+            <div className="flex border-b bg-slate-50 shrink-0">
+              <button
+                className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${builderTab === 'exercises' ? 'border-emerald-500 text-emerald-700 bg-white' : 'border-transparent text-slate-400'}`}
+                onClick={() => setBuilderTab('exercises')}
+              >
+                <Dumbbell size={16} /> Exercices ({workoutExercises.length})
+              </button>
+              <button
+                className={`flex-1 py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 border-b-2 transition-colors ${builderTab === 'library' ? 'border-blue-500 text-blue-700 bg-white' : 'border-transparent text-slate-400'}`}
+                onClick={() => setBuilderTab('library')}
+              >
+                <BookOpen size={16} /> Ajouter depuis la bibliothèque
+              </button>
+            </div>
 
+            <div className="flex-1 overflow-hidden">
               {/* Exercises panel */}
-              <div className={`flex-1 p-4 md:p-6 overflow-y-auto space-y-4 ${builderTab === 'library' ? 'hidden md:block' : ''}`}>
-                <h3 className="hidden md:flex font-bold text-slate-700 items-center gap-2"><Dumbbell size={18} className="text-emerald-500" /> Exercices de la séance ({workoutExercises.length})</h3>
+              <div className={`h-full p-4 md:p-6 overflow-y-auto space-y-4 ${builderTab === 'library' ? 'hidden' : ''}`}>
                 {workoutExercises.length > 0 ? (
                   workoutExercises.map((ex, idx) => (
                     <div key={ex.id} className="bg-white border rounded-xl p-3 md:p-4 shadow-sm space-y-3 relative group">
@@ -766,8 +764,7 @@ export default function CoachAdmin({ user }: CoachAdminProps) {
               </div>
 
               {/* Library panel */}
-              <div className={`md:w-72 lg:w-80 bg-slate-50 p-4 md:p-6 overflow-y-auto md:border-l space-y-3 ${builderTab === 'exercises' ? 'hidden md:block' : ''}`}>
-                <h3 className="hidden md:flex font-bold text-slate-700 items-center gap-2"><BookOpen size={18} className="text-blue-500" /> Bibliothèque</h3>
+              <div className={`h-full bg-slate-50 p-4 md:p-6 overflow-y-auto space-y-3 ${builderTab === 'exercises' ? 'hidden' : ''}`}>
                 <div className="space-y-2">
                   {library.map(ex => (
                     <Button
