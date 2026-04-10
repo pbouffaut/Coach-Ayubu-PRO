@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, setDoc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, getDocs } from 'firebase/firestore';
 import { UserProfile, AISettings, AIModel } from '../types';
+import { loadAISettingsFromStorage, saveAISettingsToStorage, syncAISettingsFromFirestore } from '../lib/gemini';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -44,28 +45,29 @@ export default function CoachSettings({ user }: CoachSettingsProps) {
     return () => unsub();
   }, []);
 
-  // Load AI settings
+  // Load AI settings: sync from Firestore coach profile, fallback to localStorage
   useEffect(() => {
-    const loadSettings = async () => {
-      const docSnap = await getDoc(doc(db, 'settings', 'ai'));
-      if (docSnap.exists()) {
-        setAiSettings(docSnap.data() as AISettings);
-      }
-    };
-    loadSettings();
-  }, []);
+    syncAISettingsFromFirestore(user.uid).then(setAiSettings);
+  }, [user.uid]);
 
-  // Save AI settings
+  // Save AI settings to both localStorage and Firestore coach profile
   const handleSaveAI = async () => {
     setSaving(true);
     try {
-      await setDoc(doc(db, 'settings', 'ai'), {
-        apiKey: aiSettings.apiKey,
-        model: aiSettings.model,
-      }, { merge: true });
+      // Save locally for immediate use
+      saveAISettingsToStorage(aiSettings);
+      // Save to Firestore coach profile for cross-browser sync
+      await updateDoc(doc(db, 'users', user.uid), {
+        aiSettings: {
+          apiKey: aiSettings.apiKey,
+          model: aiSettings.model,
+          lastTested: aiSettings.lastTested || null,
+        }
+      });
       toast.success('Configuration IA enregistrée');
     } catch (error) {
-      toast.error('Erreur lors de la sauvegarde');
+      // Firestore save failed but localStorage worked
+      toast.success('Configuration IA enregistrée localement');
     } finally {
       setSaving(false);
     }
@@ -90,11 +92,9 @@ export default function CoachSettings({ user }: CoachSettingsProps) {
       });
       if (response.text) {
         setTestResult('success');
-        // Save the last tested date
-        await setDoc(doc(db, 'settings', 'ai'), {
-          ...aiSettings,
-          lastTested: new Date().toISOString(),
-        }, { merge: true });
+        const updated = { ...aiSettings, lastTested: new Date().toISOString() };
+        setAiSettings(updated);
+        saveAISettingsToStorage(updated);
         toast.success(`Connexion réussie avec ${aiSettings.model}`);
       } else {
         setTestResult('error');
@@ -117,7 +117,6 @@ export default function CoachSettings({ user }: CoachSettingsProps) {
 
     setPromoteLoading(true);
     try {
-      // Find user by email
       const q = query(collection(db, 'users'), where('email', '==', newCoachEmail.trim().toLowerCase()));
       const snap = await getDocs(q);
 

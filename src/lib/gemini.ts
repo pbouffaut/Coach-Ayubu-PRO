@@ -6,39 +6,40 @@ import { AISettings, AIModel } from '../types';
 // Build-time fallback (Vite replaces this at build)
 const ENV_API_KEY = process.env.GEMINI_API_KEY || '';
 
-// Cache for Firestore settings
-let cachedSettings: AISettings | null = null;
-let cacheTimestamp = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 min
+// AI settings are stored in users/{coachUid}.aiSettings
+// We also cache in localStorage for fast access
+const STORAGE_KEY = 'coach_ayubu_ai_settings';
 
-async function loadAISettings(): Promise<AISettings> {
-  const now = Date.now();
-  if (cachedSettings && (now - cacheTimestamp) < CACHE_TTL) {
-    return cachedSettings;
-  }
-
+export function loadAISettingsFromStorage(): AISettings {
   try {
-    const snap = await getDoc(doc(db, 'settings', 'ai'));
-    if (snap.exists()) {
-      cachedSettings = snap.data() as AISettings;
-      cacheTimestamp = now;
-      return cachedSettings;
-    }
-  } catch {
-    // Firestore unavailable — fall through to env var
-  }
-
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch { /* ignore */ }
   return { apiKey: ENV_API_KEY, model: 'gemini-2.0-flash-lite' };
 }
 
-// Force refresh cache (call after saving settings)
-export function invalidateAISettingsCache() {
-  cachedSettings = null;
-  cacheTimestamp = 0;
+export function saveAISettingsToStorage(settings: AISettings) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
+
+// Load from Firestore coach profile and cache locally
+export async function syncAISettingsFromFirestore(coachUid: string): Promise<AISettings> {
+  try {
+    const snap = await getDoc(doc(db, 'users', coachUid));
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.aiSettings) {
+        const settings = data.aiSettings as AISettings;
+        saveAISettingsToStorage(settings);
+        return settings;
+      }
+    }
+  } catch { /* Firestore unavailable — use local cache */ }
+  return loadAISettingsFromStorage();
 }
 
 async function getAI(): Promise<{ ai: GoogleGenAI; model: AIModel }> {
-  const settings = await loadAISettings();
+  const settings = loadAISettingsFromStorage();
   const apiKey = settings.apiKey || ENV_API_KEY;
 
   if (!apiKey) {
