@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db, hashPassword } from './lib/firebase';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, updateDoc, Timestamp, getDocs } from 'firebase/firestore';
 import { UserProfile, Workout } from './types';
 import { Button } from './components/ui/button';
@@ -25,6 +25,11 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser && firebaseUser.isAnonymous) {
+        // Anonymous auth is used for code login — don't process here
+        setLoading(false);
+        return;
+      }
       if (firebaseUser) {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
@@ -110,25 +115,57 @@ export default function App() {
       return;
     }
 
-    const hashedPw = await hashPassword(clientPassword);
-    const q = query(
-      collection(db, 'users'),
-      where('clientCode', '==', clientCode.toUpperCase()),
-      where('passwordHash', '==', hashedPw)
-    );
-
-    const snapshot = await getDocs(q);
-    if (!snapshot.empty) {
-      const userData = snapshot.docs[0].data() as UserProfile;
-      setUser(userData);
-      if (userData.role === 'coach') {
-        setView('coach');
-      } else {
-        setView('dashboard');
+    try {
+      // Sign in anonymously to get Firestore read access for the query
+      let wasAnonymous = false;
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+        wasAnonymous = true;
       }
-      toast.success(`Bienvenue ${userData.firstName} !`);
-    } else {
-      toast.error("Code ou mot de passe incorrect");
+
+      const hashedPw = await hashPassword(clientPassword);
+      const q = query(
+        collection(db, 'users'),
+        where('clientCode', '==', clientCode.toUpperCase()),
+        where('passwordHash', '==', hashedPw)
+      );
+
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const userData = snapshot.docs[0].data() as UserProfile;
+        setUser(userData);
+        if (userData.role === 'coach') {
+          setView('coach');
+        } else {
+          setView('dashboard');
+        }
+        toast.success(`Bienvenue ${userData.firstName} !`);
+      } else {
+        if (wasAnonymous) await signOut(auth);
+        toast.error("Code ou mot de passe incorrect");
+      }
+    } catch (error) {
+      console.error('Code login error:', error);
+      // If anonymous auth fails or rules block, try without auth
+      try {
+        const hashedPw = await hashPassword(clientPassword);
+        const q = query(
+          collection(db, 'users'),
+          where('clientCode', '==', clientCode.toUpperCase()),
+          where('passwordHash', '==', hashedPw)
+        );
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          const userData = snapshot.docs[0].data() as UserProfile;
+          setUser(userData);
+          setView(userData.role === 'coach' ? 'coach' : 'dashboard');
+          toast.success(`Bienvenue ${userData.firstName} !`);
+        } else {
+          toast.error("Code ou mot de passe incorrect");
+        }
+      } catch {
+        toast.error("Erreur de connexion. Le login par code nécessite l'activation de l'authentification anonyme dans Firebase.");
+      }
     }
   };
 
