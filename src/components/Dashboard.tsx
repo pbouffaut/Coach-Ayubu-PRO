@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, Play, CheckCircle2, Activity, Dumbbell, Clock, ChevronRight, History, Trophy } from 'lucide-react';
-import { format, isToday } from 'date-fns';
+import { format, isToday, isAfter } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { motion } from 'motion/react';
 
@@ -40,6 +40,11 @@ export default function Dashboard({ user, onStartWorkout }: DashboardProps) {
 
   const todayWorkout = workouts.find(w => w.date && isToday(w.date.toDate()) && w.status === 'planned');
   const pastWorkouts = workouts.filter(w => w.status === 'completed' || w.status === 'auto-completed');
+  const upcomingWorkouts = workouts.filter(w => {
+    if (!w.date || w.status !== 'planned') return false;
+    const d = w.date.toDate();
+    return isAfter(d, new Date()) && !isToday(d);
+  }).sort((a, b) => a.date.toDate().getTime() - b.date.toDate().getTime());
 
   const startWorkout = async (workout: Workout) => {
     await updateDoc(doc(db, 'workouts', workout.id), {
@@ -128,13 +133,50 @@ export default function Dashboard({ user, onStartWorkout }: DashboardProps) {
           </div>
         </div>
 
-        {/* Right Column: History */}
+        {/* Right Column: Upcoming + History */}
         <div className="space-y-6">
+          {/* Upcoming Workouts */}
+          {upcomingWorkouts.length > 0 && (
+            <>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">
+                  <Calendar size={20} className="text-blue-500" /> Prochaines séances
+                </h2>
+              </div>
+              <div className="space-y-3">
+                {upcomingWorkouts.map((workout, idx) => (
+                  <motion.div
+                    key={workout.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.1 }}
+                  >
+                    <Card className="border-none shadow-sm hover:shadow-md transition-shadow">
+                      <CardContent className="p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-blue-50 text-blue-600 p-2 rounded-lg">
+                            <Dumbbell size={20} />
+                          </div>
+                          <div>
+                            <p className="font-bold text-blue-900">{workout.name}</p>
+                            <p className="text-xs text-slate-400">
+                              {format(workout.date.toDate(), 'EEEE d MMMM', { locale: fr })}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* History */}
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">
               <History size={20} className="text-emerald-500" /> Historique
             </h2>
-            <Button variant="link" className="text-emerald-600 font-semibold p-0">Voir tout</Button>
           </div>
           
           <div className="space-y-4">
