@@ -31,30 +31,38 @@ export default function App() {
         return;
       }
       if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as UserProfile;
-          // Auto-promote designated coach if still client
-          if (userData.role === 'client' && firebaseUser.email === 'pbouffaut@industriousoffice.com') {
-            await updateDoc(doc(db, 'users', firebaseUser.uid), { role: 'coach' });
-            userData.role = 'coach';
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data() as UserProfile;
+            // Auto-promote designated coach if still client
+            if (userData.role === 'client' && firebaseUser.email === 'pbouffaut@industriousoffice.com') {
+              try {
+                await updateDoc(doc(db, 'users', firebaseUser.uid), { role: 'coach' });
+                userData.role = 'coach';
+              } catch { /* rules may block — continue as client */ }
+            }
+            setUser(userData);
+            if (userData.role === 'coach') {
+              setView('coach');
+            }
+          } else {
+            // New user
+            const isCoach = firebaseUser.email === 'pbouffaut@industriousoffice.com';
+            const newUser: UserProfile = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              role: isCoach ? 'coach' : 'client',
+              firstName: firebaseUser.displayName?.split(' ')[0] || 'Prénom',
+              lastName: firebaseUser.displayName?.split(' ')[1] || 'Nom',
+            };
+            await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+            setUser(newUser);
+            if (newUser.role === 'coach') setView('coach');
           }
-          setUser(userData);
-          if (userData.role === 'coach') {
-            setView('coach');
-          }
-        } else {
-          // New user - first user or designated email becomes coach
-          const isFirstOrDesignatedCoach = firebaseUser.email === 'pbouffaut@industriousoffice.com';
-          const newUser: UserProfile = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            role: isFirstOrDesignatedCoach ? 'coach' : 'client',
-            firstName: firebaseUser.displayName?.split(' ')[0] || 'Prénom',
-            lastName: firebaseUser.displayName?.split(' ')[1] || 'Nom',
-          };
-          await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
-          setUser(newUser);
+        } catch (error) {
+          console.error('Auth error:', error);
+          toast.error("Erreur de chargement du profil");
         }
       } else {
         setUser(null);

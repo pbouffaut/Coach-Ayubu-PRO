@@ -117,7 +117,7 @@ service cloud.firestore {
       );
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isCoach());
       allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
-                    (isOwner(userId) && request.resource.data.role == resource.data.role || isCoach());
+                    (isOwner(userId) || isCoach());
       allow delete: if isCoach();
     }
 
