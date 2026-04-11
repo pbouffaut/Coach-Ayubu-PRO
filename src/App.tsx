@@ -34,6 +34,11 @@ export default function App() {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data() as UserProfile;
+          // Auto-promote designated coach if still client
+          if (userData.role === 'client' && firebaseUser.email === 'pbouffaut@industriousoffice.com') {
+            await updateDoc(doc(db, 'users', firebaseUser.uid), { role: 'coach' });
+            userData.role = 'coach';
+          }
           setUser(userData);
           if (userData.role === 'coach') {
             setView('coach');
